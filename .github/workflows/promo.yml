@@ -1,0 +1,43 @@
+name: Install Prometheus and Grafana
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  install-prometheus-grafana:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Prometheus
+      run: |
+        # Install Prometheus (latest version)
+        PROMETHEUS_VERSION=$(curl -s https://api.github.com/repos/prometheus/prometheus/releases/latest | jq -r .tag_name)
+        curl -LO https://github.com/prometheus/prometheus/releases/download/$PROMETHEUS_VERSION/prometheus-$PROMETHEUS_VERSION.linux-amd64.tar.gz
+        tar xvf prometheus-$PROMETHEUS_VERSION.linux-amd64.tar.gz
+        sudo mv prometheus-$PROMETHEUS_VERSION.linux-amd64/prometheus /usr/local/bin/
+        sudo mv prometheus-$PROMETHEUS_VERSION.linux-amd64/promtool /usr/local/bin/
+        sudo mkdir /etc/prometheus
+        sudo mv prometheus-$PROMETHEUS_VERSION.linux-amd64/prometheus.yml /etc/prometheus/
+
+    - name: Set up Grafana
+      run: |
+        # Install Grafana (latest version)
+        GRAFANA_VERSION=$(curl -s https://api.github.com/repos/grafana/grafana/releases/latest | jq -r .tag_name)
+        curl -LO https://dl.grafana.com/oss/release/grafana-$GRAFANA_VERSION.linux-amd64.tar.gz
+        tar -zxvf grafana-$GRAFANA_VERSION.linux-amd64.tar.gz
+        sudo mv grafana-$GRAFANA_VERSION/bin/grafana-server /usr/local/bin/
+        sudo mv grafana-$GRAFANA_VERSION/bin/grafana-cli /usr/local/bin/
+
+    - name: Verify Prometheus and Grafana Installation
+      run: |
+        prometheus --version
+        grafana-server --version
+
