@@ -6,8 +6,16 @@
     # Install Prometheus
     ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP << 'EOF'
       set -x  # Enable debugging
+
+      # Ensure required tools are installed
+      sudo apt-get update
+      sudo apt-get install -y curl tar
+
+      # Create directories
       sudo mkdir -p /etc/prometheus
       sudo mkdir -p /var/lib/prometheus
+
+      # Download and install Prometheus
       curl -LO https://github.com/prometheus/prometheus/releases/download/v2.36.0/prometheus-2.36.0.linux-amd64.tar.gz
       tar -xvzf prometheus-2.36.0.linux-amd64.tar.gz
       sudo mv prometheus-2.36.0.linux-amd64/prometheus /usr/local/bin/
@@ -31,6 +39,7 @@
       WantedBy=multi-user.target
       EOF'
 
+      # Enable and start Prometheus service
       sudo systemctl enable prometheus
       sudo systemctl start prometheus
     EOF
@@ -38,8 +47,11 @@
     # Install Grafana
     ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP << 'EOF'
       set -x  # Enable debugging
-      # Add Grafana repository and install it
+
+      # Install required dependencies for Grafana
       sudo apt-get install -y software-properties-common
+
+      # Add Grafana repository and install Grafana
       sudo add-apt-repository "deb https://packages.grafana.com/oss/deb stable main"
       sudo apt-get update
       sudo apt-get install -y grafana
