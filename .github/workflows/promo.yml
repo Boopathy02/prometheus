@@ -1,64 +1,84 @@
-- name: Install Prometheus and Grafana on EC2
-  run: |
-    EC2_PUBLIC_IP=${{ secrets.EC2_PUBLIC_IP }}
-    SSH_USER=${{ secrets.EC2_SSH_USER }}
+name: Install Prometheus and Grafana on EC2
 
-    # Install Prometheus
-    ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP << 'EOF'
-      set -x  # Enable debugging
+# Trigger on push to the main branch
+on:
+  push:
+    branches:
+      - main  # Trigger when changes are pushed to the 'main' branch
 
-      # Ensure required tools are installed
-      sudo apt-get update
-      sudo apt-get install -y curl tar
+jobs:
+  setup:
+    runs-on: ubuntu-latest  # Use Ubuntu runner
 
-      # Create directories
-      sudo mkdir -p /etc/prometheus
-      sudo mkdir -p /var/lib/prometheus
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2  # Checkout your code
 
-      # Download and install Prometheus
-      curl -LO https://github.com/prometheus/prometheus/releases/download/v2.36.0/prometheus-2.36.0.linux-amd64.tar.gz
-      tar -xvzf prometheus-2.36.0.linux-amd64.tar.gz
-      sudo mv prometheus-2.36.0.linux-amd64/prometheus /usr/local/bin/
-      sudo mv prometheus-2.36.0.linux-amd64/promtool /usr/local/bin/
-      sudo mv prometheus-2.36.0.linux-amd64/consoles /etc/prometheus
-      sudo mv prometheus-2.36.0.linux-amd64/console_libraries /etc/prometheus
-      sudo cp prometheus-2.36.0.linux-amd64/prometheus.yml /etc/prometheus
-      sudo rm -rf prometheus-2.36.0.linux-amd64*
+      - name: Set up AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2  # AWS region
 
-      # Create Prometheus service
-      sudo bash -c 'cat > /etc/systemd/system/prometheus.service << EOF
-      [Unit]
-      Description=Prometheus
-      After=network.target
+      - name: Install SSH client
+        run: sudo apt-get install -y openssh-client
 
-      [Service]
-      User=root
-      ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus/
+      - name: Setup EC2 SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
 
-      [Install]
-      WantedBy=multi-user.target
-      EOF'
+      - name: Install Prometheus and Grafana on EC2
+        run: |
+          EC2_PUBLIC_IP=${{ secrets.EC2_PUBLIC_IP }}
+          SSH_USER=${{ secrets.EC2_SSH_USER }}
 
-      # Enable and start Prometheus service
-      sudo systemctl enable prometheus
-      sudo systemctl start prometheus
-    EOF
+          # Install Prometheus
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP << 'EOF'
+            set -x  # Enable debugging
+            sudo mkdir -p /etc/prometheus
+            sudo mkdir -p /var/lib/prometheus
+            curl -LO https://github.com/prometheus/prometheus/releases/download/v2.36.0/prometheus-2.36.0.linux-amd64.tar.gz
+            tar -xvzf prometheus-2.36.0.linux-amd64.tar.gz
+            sudo mv prometheus-2.36.0.linux-amd64/prometheus /usr/local/bin/
+            sudo mv prometheus-2.36.0.linux-amd64/promtool /usr/local/bin/
+            sudo mv prometheus-2.36.0.linux-amd64/consoles /etc/prometheus
+            sudo mv prometheus-2.36.0.linux-amd64/console_libraries /etc/prometheus
+            sudo cp prometheus-2.36.0.linux-amd64/prometheus.yml /etc/prometheus
+            sudo rm -rf prometheus-2.36.0.linux-amd64*
 
-    # Install Grafana
-    ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP << 'EOF'
-      set -x  # Enable debugging
+            # Create Prometheus service
+            sudo bash -c 'cat > /etc/systemd/system/prometheus.service << EOF
+            [Unit]
+            Description=Prometheus
+            After=network.target
 
-      # Install required dependencies for Grafana
-      sudo apt-get install -y software-properties-common
+            [Service]
+            User=root
+            ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus/
 
-      # Add Grafana repository and install Grafana
-      sudo add-apt-repository "deb https://packages.grafana.com/oss/deb stable main"
-      sudo apt-get update
-      sudo apt-get install -y grafana
+            [Install]
+            WantedBy=multi-user.target
+            EOF'
 
-      # Start Grafana service
-      sudo systemctl enable grafana-server
-      sudo systemctl start grafana-server
-    EOF
+            sudo systemctl enable prometheus
+            sudo systemctl start prometheus
+          EOF
 
-    echo "Prometheus and Grafana are installed and running!"
+          # Install Grafana
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP << 'EOF'
+            set -x  # Enable debugging
+            # Add Grafana repository and install it
+            sudo apt-get install -y software-properties-common
+            sudo add-apt-repository "deb https://packages.grafana.com/oss/deb stable main"
+            sudo apt-get update
+            sudo apt-get install -y grafana
+
+            # Start Grafana service
+            sudo systemctl enable grafana-server
+            sudo systemctl start grafana-server
+          EOF
+
+          echo "Prometheus and Grafana are installed and running!"
