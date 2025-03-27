@@ -1,9 +1,75 @@
-- name: Setup EC2 SSH Key
-  run: |
-    mkdir -p ~/.ssh
-    echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-    chmod 600 ~/.ssh/id_rsa
-    echo "First line:" && head -n 1 ~/.ssh/id_rsa
-    echo "Last line:" && tail -n 1 ~/.ssh/id_rsa
-    ssh-keygen -y -f ~/.ssh/id_rsa || { echo "SSH key is invalid"; exit 1; }
-  shell: /usr/bin/bash -e {0}
+name: Install Prometheus and Grafana on EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+
+      - name: Install SSH client
+        run: sudo apt-get update && sudo apt-get install -y openssh-client
+
+      - name: Setup EC2 SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "First line:" && head -n 1 ~/.ssh/id_rsa
+          echo "Last line:" && tail -n 1 ~/.ssh/id_rsa
+          ssh-keygen -y -f ~/.ssh/id_rsa || { echo "SSH key is invalid"; exit 1; }
+
+      - name: Install Prometheus and Grafana on EC2
+        run: |
+          EC2_PUBLIC_IP=${{ secrets.EC2_PUBLIC_IP }}
+          SSH_USER=${{ secrets.EC2_SSH_USER }}
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP << 'EOF'
+            set -x
+            sudo mkdir -p /etc/prometheus
+            sudo mkdir -p /var/lib/prometheus
+            curl -LO https://github.com/prometheus/prometheus/releases/download/v2.36.0/prometheus-2.36.0.linux-amd64.tar.gz || { echo "Failed to download Prometheus"; exit 1; }
+            tar -xvzf prometheus-2.36.0.linux-amd64.tar.gz || { echo "Failed to extract Prometheus"; exit 1; }
+            sudo mv prometheus-2.36.0.linux-amd64/prometheus /usr/local/bin/ || { echo "Failed to move Prometheus"; exit 1; }
+            sudo mv prometheus-2.36.0.linux-amd64/promtool /usr/local/bin/ || { echo "Failed to move Promtool"; exit 1; }
+            sudo mv prometheus-2.36.0.linux-amd64/consoles /etc/prometheus || { echo "Failed to move consoles"; exit 1; }
+            sudo mv prometheus-2.36.0.linux-amd64/console_libraries /etc/prometheus || { echo "Failed to move console libraries"; exit 1; }
+            sudo cp prometheus-2.36.0.linux-amd64/prometheus.yml /etc/prometheus || { echo "Failed to copy Prometheus config"; exit 1; }
+            sudo rm -rf prometheus-2.36.0.linux-amd64*
+            sudo bash -c 'cat > /etc/systemd/system/prometheus.service << EOF2
+            [Unit]
+            Description=Prometheus
+            After=network.target
+            [Service]
+            User=root
+            ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus/
+            [Install]
+            WantedBy=multi-user.target
+            EOF2'
+            sudo systemctl daemon-reload
+            sudo systemctl enable prometheus || { echo "Failed to enable Prometheus"; exit 1; }
+            sudo systemctl start prometheus || { echo "Failed to start Prometheus"; exit 1; }
+          EOF
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP << 'EOF'
+            set -x
+            sudo apt-get update
+            sudo apt-get install -y software-properties-common
+            sudo add-apt-repository "deb https://packages.grafana.com/oss/deb stable main"
+            wget -q -O - https://packages.grafana.com/gpg.key | sudo apt-key add -
+            sudo apt-get update
+            sudo apt-get install -y grafana
+            sudo systemctl daemon-reload
+            sudo systemctl enable grafana-server || { echo "Failed to enable Grafana"; exit 1; }
+            sudo systemctl start grafana-server || { echo "Failed to start Grafana"; exit 1; }
+          EOF
