@@ -1,17 +1,25 @@
+name: Install Prometheus and Grafana on EC2
+
+# Trigger on push to the main branch
+on:
+  push:
+    branches:
+      - main  # Trigger when changes are pushed to the 'main' branch
+
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # Use Ubuntu runner
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v2  # Checkout your code
 
     - name: Set up AWS CLI
       uses: aws-actions/configure-aws-credentials@v1
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: us-west-2
+        aws-region: us-west-2  # AWS region
 
     - name: Install SSH client
       run: sudo apt-get install -y openssh-client
@@ -19,8 +27,8 @@ jobs:
     - name: Setup EC2 SSH Key
       run: |
         mkdir -p ~/.ssh
-        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa  # Write private key to file
-        chmod 600 ~/.ssh/id_rsa  # Ensure correct permissions for SSH key
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
 
     - name: Install Prometheus and Grafana on EC2
       run: |
@@ -72,4 +80,3 @@ jobs:
         EOF
 
         echo "Prometheus and Grafana are installed and running!"
-
