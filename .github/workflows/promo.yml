@@ -11,10 +11,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3  # Updated to v3
+      uses: actions/checkout@v3
 
     - name: Set up AWS CLI
-      uses: aws-actions/configure-aws-credentials@v2  # Updated to v2
+      uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -26,9 +26,15 @@ jobs:
     - name: Setup EC2 SSH Key
       run: |
         mkdir -p ~/.ssh
-        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        # Properly format the private key with newlines
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" | sed 's/\\n/\n/g' > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
+        # Add the EC2 host to known_hosts
         ssh-keyscan ${{ secrets.EC2_PUBLIC_IP }} >> ~/.ssh/known_hosts
+
+    - name: Verify SSH Connection
+      run: |
+        ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_SSH_USER }}@${{ secrets.EC2_PUBLIC_IP }} "echo 'SSH connection successful!'"
 
     - name: Install Prometheus and Grafana on EC2
       run: |
@@ -36,18 +42,15 @@ jobs:
         SSH_USER=${{ secrets.EC2_SSH_USER }}
 
         # Install Prometheus
-        ssh -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP "sudo apt-get update && sudo apt-get install -y curl"
+        ssh -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP "sudo apt-get update && sudo apt-get install -y curl tar"
         ssh -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP "bash -s" << 'PROMETHEUS_EOF'
           # Prometheus installation script
-          sudo mkdir -p /etc/prometheus
-          sudo mkdir -p /var/lib/prometheus
+          sudo mkdir -p /etc/prometheus /var/lib/prometheus
           curl -LO https://github.com/prometheus/prometheus/releases/download/v2.36.0/prometheus-2.36.0.linux-amd64.tar.gz
           tar -xvzf prometheus-2.36.0.linux-amd64.tar.gz
-          sudo mv prometheus-2.36.0.linux-amd64/prometheus /usr/local/bin/
-          sudo mv prometheus-2.36.0.linux-amd64/promtool /usr/local/bin/
-          sudo mv prometheus-2.36.0.linux-amd64/consoles /etc/prometheus
-          sudo mv prometheus-2.36.0.linux-amd64/console_libraries /etc/prometheus
-          sudo cp prometheus-2.36.0.linux-amd64/prometheus.yml /etc/prometheus
+          sudo mv prometheus-2.36.0.linux-amd64/{prometheus,promtool} /usr/local/bin/
+          sudo mv prometheus-2.36.0.linux-amd64/{consoles,console_libraries} /etc/prometheus/
+          sudo cp prometheus-2.36.0.linux-amd64/prometheus.yml /etc/prometheus/
           sudo rm -rf prometheus-2.36.0.linux-amd64*
 
           # Create Prometheus service
@@ -58,7 +61,9 @@ jobs:
 
           [Service]
           User=root
-          ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus/
+          ExecStart=/usr/local/bin/prometheus \
+            --config.file=/etc/prometheus/prometheus.yml \
+            --storage.tsdb.path=/var/lib/prometheus/
 
           [Install]
           WantedBy=multi-user.target
@@ -72,13 +77,14 @@ jobs:
         # Install Grafana
         ssh -i ~/.ssh/id_rsa $SSH_USER@$EC2_PUBLIC_IP "bash -s" << 'GRAFANA_EOF'
           # Grafana installation script
-          sudo apt-get install -y software-properties-common
-          sudo add-apt-repository "deb https://packages.grafana.com/oss/deb stable main"
-          wget -q -O - https://packages.grafana.com/gpg.key | sudo apt-key add -
+          sudo apt-get install -y apt-transport-https software-properties-common
+          sudo mkdir -p /etc/apt/keyrings/
+          curl -fsSL https://apt.grafana.com/gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/grafana.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" | sudo tee /etc/apt/sources.list.d/grafana.list
           sudo apt-get update
           sudo apt-get install -y grafana
           sudo systemctl enable grafana-server
           sudo systemctl start grafana-server
         GRAFANA_EOF
 
-        echo "Prometheus and Grafana are installed and running!"
+        echo "Prometheus and Grafana installed successfully!"
